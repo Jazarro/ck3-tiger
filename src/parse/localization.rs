@@ -6,7 +6,7 @@ use crate::datatype::{Code, CodeArg, CodeChain};
 use crate::errorkey::ErrorKey;
 use crate::errors::{error, warn};
 use crate::fileset::FileEntry;
-use crate::token::{Loc, Token};
+use crate::token::{Loc, PositionInFile, Token};
 
 fn is_key_char(c: char) -> bool {
     c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '\''
@@ -57,10 +57,17 @@ impl<'a> LocaParser<'a> {
         if let Some(c) = self.chars.next() {
             self.offset += c.len_utf8();
             if c == '\n' {
-                self.loc.line += 1;
-                self.loc.column = 1;
+                self.loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_line();
             } else {
-                self.loc.column += 1;
+                self.loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_char();
             }
         }
     }
@@ -409,7 +416,11 @@ impl<'a> ValueParser<'a> {
         if self.peek().is_some() {
             if let Some(c) = self.content_iters[self.content_idx].next() {
                 self.offset += c.len_utf8();
-                self.loc.column += 1;
+                self.loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_char();
             }
         }
     }
@@ -721,8 +732,7 @@ impl<'a> Iterator for LocaReader<'a> {
 
 pub fn parse_loca<'a>(entry: &FileEntry, content: &'a str, lang: &'static str) -> LocaReader<'a> {
     let mut loc = Loc::for_entry(entry);
-    loc.line = 1;
-    loc.column = 1;
+    loc.position = Some(PositionInFile::start_of_file());
     let parser = LocaParser::new(loc, content, lang);
     LocaReader { parser }
 }

@@ -11,7 +11,7 @@ use crate::everything::Everything;
 use crate::fileset::{FileEntry, FileHandler};
 use crate::helpers::dup_error;
 use crate::item::Item;
-use crate::token::{Loc, Token};
+use crate::token::{Loc, PositionInFile, Token};
 
 #[derive(Clone, Debug, Default)]
 pub struct Sounds {
@@ -74,18 +74,17 @@ impl FileHandler for Sounds {
             }
         };
 
-        let mut linenr = 1;
+        let mut line_nr = 1;
         for line in content.lines() {
             let mut loc = Loc::for_entry(entry);
-            loc.line = linenr;
-            loc.column = 1;
+            loc.position = Some(PositionInFile::new(line_nr, 1));
             let token = Token::new(line.to_string(), loc);
             if let Some((guid, sound)) = token.split_once(' ') {
                 self.load_item(sound, guid);
             } else {
                 error(token, ErrorKey::ParseError, "could not parse sound guid");
             }
-            linenr += 1;
+            line_nr += 1;
         }
     }
 }

@@ -1,14 +1,15 @@
-use anyhow::Result;
-use encoding::all::WINDOWS_1252;
-use encoding::{DecoderTrap, Encoding};
 use std::fs::read;
 use std::iter::Peekable;
 use std::path::Path;
 use std::str::Chars;
 
+use anyhow::Result;
+use encoding::all::WINDOWS_1252;
+use encoding::{DecoderTrap, Encoding};
+
 use crate::errors::ErrorLoc;
 use crate::fileset::FileEntry;
-use crate::token::{Loc, Token};
+use crate::token::{Loc, PositionInFile, Token};
 
 #[derive(Clone, Debug)]
 struct CsvParser<'a> {
@@ -21,8 +22,7 @@ struct CsvParser<'a> {
 
 impl<'a> CsvParser<'a> {
     fn new(mut loc: Loc, header_lines: usize, content: &'a str) -> Self {
-        loc.line = 1;
-        loc.column = 1;
+        loc.position = Some(PositionInFile::start_of_file());
         let chars = content.chars().peekable();
         Self {
             loc,
@@ -38,10 +38,17 @@ impl<'a> CsvParser<'a> {
         if let Some(c) = self.chars.next() {
             self.offset += c.len_utf8();
             if c == '\n' {
-                self.loc.line += 1;
-                self.loc.column = 1;
+                self.loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_line();
             } else {
-                self.loc.column += 1;
+                self.loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_char();
             }
         }
     }

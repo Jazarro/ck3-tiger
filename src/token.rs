@@ -13,11 +13,41 @@ use crate::fileset::{FileEntry, FileKind};
 pub struct Loc {
     pub pathname: Rc<PathBuf>,
     pub kind: FileKind,
-    /// line 0 means the loc applies to the file as a whole.
-    pub line: usize,
-    pub column: usize,
+    /// The line and column number in the file, both starting at 1.
+    /// If empty, the Loc applies to the file as a whole.
+    pub position: Option<PositionInFile>,
     /// Used in macro expansions to point to the macro invocation
     pub link: Option<Rc<Loc>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct PositionInFile {
+    /// Line number, starting at 1.
+    pub line_nr: usize,
+    /// Column number, starting at 1.
+    pub column_nr: usize,
+}
+
+impl PositionInFile {
+    pub fn start_of_file() -> Self {
+        Self {
+            line_nr: 1,
+            column_nr: 1,
+        }
+    }
+    pub fn new(line_nr: usize, column_nr: usize) -> Self {
+        Self { line_nr, column_nr }
+    }
+    pub fn line_marker(&self) -> String {
+        format!("line {}", self.line_nr)
+    }
+    pub fn set_to_next_line(&mut self) {
+        self.line_nr += 1;
+        self.column_nr = 1;
+    }
+    pub fn set_to_next_char(&mut self) {
+        self.column_nr += 1;
+    }
 }
 
 impl Loc {
@@ -25,18 +55,13 @@ impl Loc {
         Loc {
             pathname,
             kind,
-            line: 0,
-            column: 0,
+            position: None,
             link: None,
         }
     }
 
     pub fn for_entry(entry: &FileEntry) -> Self {
         Self::for_file(Rc::new(entry.path().to_path_buf()), entry.kind())
-    }
-
-    pub fn line_marker(&self) -> String {
-        format!("line {}", self.line)
     }
 
     pub fn filename(&self) -> Cow<str> {
@@ -83,8 +108,9 @@ impl Token {
             if c == ch {
                 vec.push(Token::new(self.s[pos..i].to_string(), loc.clone()));
                 pos = i + 1;
-                loc.column = self.loc.column + cols + 1;
-                loc.line = self.loc.line + lines;
+                loc.position = self.loc.position.as_ref().map(|pos| {
+                    PositionInFile::new(pos.line_nr + lines, pos.column_nr + cols + 1)
+                });
             }
             if c == '\n' {
                 lines += 1;
@@ -99,7 +125,11 @@ impl Token {
             if c == ch {
                 let token1 = Token::new(self.s[..i].to_string(), self.loc.clone());
                 let mut loc = self.loc.clone();
-                loc.column += cols + 1;
+                loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .column_nr += cols + 1;
                 let token2 = Token::new(self.s[i + 1..].to_string(), loc);
                 return Some((token1, token2));
             }
@@ -114,7 +144,11 @@ impl Token {
                 let chlen = ch.len_utf8();
                 let token1 = Token::new(self.s[..i + chlen].to_string(), self.loc.clone());
                 let mut loc = self.loc.clone();
-                loc.column += cols + chlen;
+                loc
+                    .position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .column_nr += cols + chlen;
                 let token2 = Token::new(self.s[i + chlen..].to_string(), loc);
                 return Some((token1, token2));
             }
@@ -142,7 +176,11 @@ impl Token {
         }
         if let Some((cols, i)) = real_start {
             let mut loc = self.loc.clone();
-            loc.column += cols;
+            loc
+                .position
+                .as_mut()
+                .expect("PositionInFile should be available while parsing")
+                .column_nr += cols;
             Token::new(self.s[i..real_end].to_string(), loc)
         } else {
             // all spaces

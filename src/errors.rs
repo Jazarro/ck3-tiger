@@ -1,3 +1,4 @@
+use colored::Colorize;
 use encoding::all::{UTF_8, WINDOWS_1252};
 use encoding::{DecoderTrap, Encoding};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -154,23 +155,21 @@ struct Errors {
 
 impl Errors {
     fn get_line(&mut self, loc: &Loc) -> Option<String> {
-        if loc.line == 0 {
-            return None;
-        }
+        let position = loc.position.as_ref()?; // Early return None if position isn't present.
         let pathname = match loc.kind {
             FileKind::Vanilla => self.vanilla_root.join(&*loc.pathname),
             FileKind::LoadedMod(idx) => self.loaded_mods[idx as usize].join(&*loc.pathname),
             FileKind::Mod => self.mod_root.join(&*loc.pathname),
         };
         if let Some(contents) = self.filecache.get(&pathname) {
-            return contents.lines().nth(loc.line - 1).map(str::to_string);
+            return contents.lines().nth(position.line_nr - 1).map(str::to_string);
         }
         let bytes = read(&pathname).ok()?;
         let contents = match UTF_8.decode(&bytes, DecoderTrap::Strict) {
             Ok(contents) => contents,
             Err(_) => WINDOWS_1252.decode(&bytes, DecoderTrap::Strict).ok()?,
         };
-        let line = contents.lines().nth(loc.line - 1).map(str::to_string);
+        let line = contents.lines().nth(position.line_nr - 1).map(str::to_string);
         self.filecache.insert(pathname, contents);
         line
     }
@@ -218,15 +217,15 @@ impl Errors {
         let marker = self.loc_file_marker(loc);
         writeln!(self.outfile.as_mut().expect("outfile"), "{marker}").expect("writeln");
         if let Some(line) = self.get_line(loc) {
-            let line_marker = loc.line_marker();
-            if loc.line > 0 {
+            if let Some(position) = &loc.position {
+                let line_marker = position.line_marker();
                 writeln!(
                     self.outfile.as_mut().expect("outfile"),
                     "{line_marker} {line}"
                 )
                 .expect("writeln");
                 let mut spacing = String::new();
-                for c in line.chars().take(loc.column.saturating_sub(1)) {
+                for c in line.chars().take(position.column_nr.saturating_sub(1)) {
                     if c == '\t' {
                         spacing.push('\t');
                     } else {
@@ -259,15 +258,15 @@ impl Errors {
         if self.outfile.is_none() {
             self.outfile = Some(Box::new(stdout()));
         }
-        if loc.line == 0 {
+        if let Some(line) = self.get_line(loc) {
+            writeln!(self.outfile.as_mut().expect("outfile"), "({key}) {line}").expect("writeln");
+        } else {
             writeln!(
                 self.outfile.as_mut().expect("outfile"),
                 "({key}) {}",
                 loc.pathname.to_string_lossy()
             )
             .expect("writeln");
-        } else if let Some(line) = self.get_line(loc) {
-            writeln!(self.outfile.as_mut().expect("outfile"), "({key}) {line}").expect("writeln");
         }
     }
 

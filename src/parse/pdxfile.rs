@@ -5,7 +5,7 @@ use crate::block::{Block, Comparator, BV};
 use crate::errorkey::ErrorKey;
 use crate::errors::{error, warn, warn_info};
 use crate::fileset::FileEntry;
-use crate::token::{Loc, Token};
+use crate::token::{Loc, PositionInFile, Token};
 
 #[derive(Copy, Clone, Debug)]
 enum State {
@@ -278,14 +278,17 @@ impl Parser {
                 // skip the { } in constructing s
                 let s = content[prev_level.start + 1..offset - 1].to_string();
                 let mut loc = prev_level.block.loc.clone();
-                loc.column += 1;
+                loc.position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_char();
                 let token = Token::new(s, prev_level.block.loc.clone());
                 prev_level.block.source = Some((split_macros(&token), self.local_macros.clone()));
             } else {
                 self.current.contains_macro_parms |= prev_level.contains_macro_parms;
             }
             self.block_value(prev_level.block);
-            if loc.column == 1 && !self.stack.is_empty() {
+            if loc.position.as_ref().is_some_and(|pos| pos.column_nr == 1) && !self.stack.is_empty() {
                 warn_info(Token::new("}".to_string(), loc),
                 ErrorKey::BracePlacement,
                 "possible brace error",
@@ -528,10 +531,15 @@ fn parse(blockloc: Loc, inputs: &[Token], local_macros: LocalMacros) -> Block {
             }
 
             if c == '\n' {
-                loc.line += 1;
-                loc.column = 1;
+                loc.position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_line();
             } else {
-                loc.column += 1;
+                loc.position
+                    .as_mut()
+                    .expect("PositionInFile should be available while parsing")
+                    .set_to_next_char();
             }
         }
     }
@@ -561,8 +569,7 @@ fn parse(blockloc: Loc, inputs: &[Token], local_macros: LocalMacros) -> Block {
 pub fn parse_pdx(entry: &FileEntry, mut content: &str) -> Block {
     let blockloc = Loc::for_entry(entry);
     let mut loc = blockloc.clone();
-    loc.line = 1;
-    loc.column = 1;
+    loc.position = Some(PositionInFile::start_of_file());
     // If the file ends with a ^Z, remove it.
     // A ^Z anywhere else might be an error, if it interrupts the game reading the file.
     // TODO: needs testing.
@@ -617,16 +624,25 @@ pub fn split_macros(content: &Token) -> Vec<Token> {
                     ));
                     last_loc = loc.clone();
                     // Skip the current '$'
-                    last_loc.column += 1;
+                    last_loc
+                        .position
+                        .as_mut()
+                        .expect("PositionInFile should be available while parsing")
+                        .set_to_next_char();
                     last_pos = i + 1;
                 }
             }
         }
         if c == '\n' {
-            loc.column = 1;
-            loc.line += 1;
+            loc.position
+                .as_mut()
+                .expect("PositionInFile should be available while parsing")
+                .set_to_next_line();
         } else {
-            loc.column += 1;
+            loc.position
+                .as_mut()
+                .expect("PositionInFile should be available while parsing")
+                .set_to_next_char();
         }
     }
     vec.push(Token::new(
